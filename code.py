@@ -70,14 +70,14 @@ print("pm10 vs wind_speed:", df.stat.corr("pm10", "wind_speed"))
 print("pm10 vs wind_dir:", df.stat.corr("pm10", "wind_dir"))
 
 #---------------------------------------------------------------------
-# Saving as parquet ---this causing issue as HADOOP_HOME and hadoop.home.dir are unset
-#winutils.exe not found
+# Saving as parquet --this causing issue as follows
+#HADOOP_HOME and hadoop.home.dir are unsetwinutils.exe not found
 #---------------------------------------------------------------------
 
-df.write.mode("overwrite").parquet("data/air_quality_clean.parquet")
+#df.write.mode("overwrite").parquet("data/air_quality_clean.parquet")
 
 # Reload (best practice for next stages)
-df = spark.read.parquet("data/air_quality_clean.parquet")
+#df = spark.read.parquet("data/air_quality_clean.parquet")
 
 #---------------------------------------------------------------------
 #Feature engeneering
@@ -95,6 +95,8 @@ test_df = df.filter(df.datetime >= "2022-01-01")
 # define features and label columns
 feature_cols = ["wind_speed", "wind_dir", "hour", "day_of_week"]
 label_col = "pm25"
+# ✅ ADDED: Second label for PM10
+label_col_pm10 = "pm10"
 
 #--------------------------------------------------------------------
 # Importing the machine learning tools
@@ -157,37 +159,170 @@ pipeline_rf = Pipeline(stages=[
     rf
 ])
 
+
+# ✅ ADDED: Random Forest for PM10
+rf_pm10 = RandomForestRegressor(
+    featuresCol="features",
+    labelCol=label_col_pm10
+)
+
+pipeline_rf_pm10 = Pipeline(stages=[
+    assembler,
+    rf_pm10
+])
+
 #------------------------------------------------------------------------
 # Training the Models and Make Predictions
 #------------------------------------------------------------------------
 
+# Train LR and DT normally
 model_lr = pipeline_lr.fit(train_df)
 model_dt = pipeline_dt.fit(train_df)
-model_rf = pipeline_rf.fit(train_df)
 
 pred_lr = model_lr.transform(test_df)
 pred_dt = model_dt.transform(test_df)
-pred_rf = model_rf.transform(test_df)
 
 #------------------------------------------------------------------------
-# Model Evaluation
+# Hyperparameter Tuning (Cross Validation of Random Forest)
 #------------------------------------------------------------------------
 
+from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 from pyspark.ml.evaluation import RegressionEvaluator
 
+# Evaluator (define here BEFORE cross-validation)
 evaluator = RegressionEvaluator(
     labelCol=label_col,
     predictionCol="prediction",
     metricName="rmse"
 )
 
+# Parameter grid
+paramGrid = ParamGridBuilder() \
+    .addGrid(rf.numTrees, [20, 50]) \
+    .addGrid(rf.maxDepth, [5, 10]) \
+    .build()
+
+# CrossValidator
+crossval = CrossValidator(
+    estimator=pipeline_rf,
+    estimatorParamMaps=paramGrid,
+    evaluator=evaluator,
+    numFolds=3
+)
+
+# Train tuned model
+cv_model = crossval.fit(train_df)
+
+# Predictions using tuned model
+pred_rf = cv_model.transform(test_df)
+
+# Evaluate tuned RF
+rmse_rf = evaluator.evaluate(pred_rf)
+print("\nPM2.5 Tuned Random Forest RMSE:", rmse_rf)
+
+# Get best model
+best_model = cv_model.bestModel
+best_rf = best_model.stages[-1]
+
+print("\nBest Parameters:")
+print("numTrees:", best_rf.getNumTrees)
+print("maxDepth:", best_rf.getOrDefault("maxDepth"))
+
+
+#------------------------------------------------------------------------
+# ✅ ADDED: Hyperparameter Tuning (PM10)
+#------------------------------------------------------------------------
+
+# Parameter grid for PM10
+paramGrid_pm10 = ParamGridBuilder() \
+    .addGrid(rf_pm10.numTrees, [20, 50]) \
+    .addGrid(rf_pm10.maxDepth, [5, 10]) \
+    .build()
+
+# CrossValidator for PM10
+crossval_pm10 = CrossValidator(
+    estimator=pipeline_rf_pm10,
+    estimatorParamMaps=paramGrid_pm10,
+    evaluator=RegressionEvaluator(
+        labelCol=label_col_pm10,
+        predictionCol="prediction",
+        metricName="rmse"
+    ),
+    numFolds=3
+)
+
+# Train PM10 model
+cv_model_pm10 = crossval_pm10.fit(train_df)
+
+# Predictions
+pred_rf_pm10 = cv_model_pm10.transform(test_df)
+
+# Evaluate PM10
+evaluator_pm10 = RegressionEvaluator(
+    labelCol=label_col_pm10,
+    predictionCol="prediction",
+    metricName="rmse"
+)
+
+rmse_rf_pm10 = evaluator_pm10.evaluate(pred_rf_pm10)
+
+print("\nPM10 Tuned Random Forest RMSE:", rmse_rf_pm10)
+
+# Best model PM10
+best_model_pm10 = cv_model_pm10.bestModel
+best_rf_pm10 = best_model_pm10.stages[-1]
+
+print("\nPM10 Best Parameters:")
+print("numTrees:", best_rf_pm10.getNumTrees)
+print("maxDepth:", best_rf_pm10.getOrDefault("maxDepth"))
+
+#------------------------------------------------------------------------
+# Feature Importance (PM2.5 - Random Forest)
+#------------------------------------------------------------------------
+
+rf_model = best_model.stages[-1]
+
+importances = rf_model.featureImportances
+feature_importance = list(zip(feature_cols, importances))
+
+print("\nPM2.5 Feature Importances:")
+for feature, importance in feature_importance:
+    print(f"{feature}: {importance:.4f}")
+
+#------------------------------------------------------------------------
+# Feature Importance (PM10 - Random Forest)
+#------------------------------------------------------------------------
+
+rf_model_pm10 = best_model_pm10.stages[-1]
+
+importances_pm10 = rf_model_pm10.featureImportances
+feature_importance_pm10 = list(zip(feature_cols, importances_pm10))
+
+print("\nPM10 Feature Importances:")
+for feature, importance in feature_importance_pm10:
+    print(f"{feature}: {importance:.4f}")
+
+#------------------------------------------------------------------------
+# Model Evaluation
+#------------------------------------------------------------------------
+
 rmse_lr = evaluator.evaluate(pred_lr)
 rmse_dt = evaluator.evaluate(pred_dt)
-rmse_rf = evaluator.evaluate(pred_rf)
 
+print("\nPM2.5 Models:")
 print("Linear Regression RMSE:", rmse_lr)
 print("Decision Tree RMSE:", rmse_dt)
 print("Random Forest RMSE:", rmse_rf)
 
+print("\nPM10 Model:")
+print("Random Forest RMSE:", rmse_rf_pm10)
 
+#------------------------------------------------------------------------
+# Show Predictions 
+#------------------------------------------------------------------------
+
+print("\nPM2.5 Predictions:")
 pred_rf.select("pm25", "prediction").show(5)
+
+print("\nPM10 Predictions:")
+pred_rf_pm10.select("pm10", "prediction").show(5)
