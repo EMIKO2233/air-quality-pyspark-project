@@ -95,7 +95,7 @@ test_df = df.filter(df.datetime >= "2022-01-01")
 # define features and label columns
 feature_cols = ["wind_speed", "wind_dir", "hour", "day_of_week"]
 label_col = "pm25"
-# ✅ ADDED: Second label for PM10
+#ADDED: Second label for PM10
 label_col_pm10 = "pm10"
 
 #--------------------------------------------------------------------
@@ -160,7 +160,7 @@ pipeline_rf = Pipeline(stages=[
 ])
 
 
-# ✅ ADDED: Random Forest for PM10
+#ADDED:Random Forest for PM10
 rf_pm10 = RandomForestRegressor(
     featuresCol="features",
     labelCol=label_col_pm10
@@ -183,7 +183,7 @@ pred_lr = model_lr.transform(test_df)
 pred_dt = model_dt.transform(test_df)
 
 #------------------------------------------------------------------------
-# Hyperparameter Tuning (Cross Validation of Random Forest)
+# Hyperparameter Tuning 2.5 PM (Cross Validation of Random Forest)
 #------------------------------------------------------------------------
 
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
@@ -230,7 +230,7 @@ print("maxDepth:", best_rf.getOrDefault("maxDepth"))
 
 
 #------------------------------------------------------------------------
-# ✅ ADDED: Hyperparameter Tuning (PM10)
+# ADDED: Hyperparameter Tuning (PM10)
 #------------------------------------------------------------------------
 
 # Parameter grid for PM10
