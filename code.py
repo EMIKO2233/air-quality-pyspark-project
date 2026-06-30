@@ -69,6 +69,50 @@ print("pm25 vs wind_dir:", df.stat.corr("pm25", "wind_dir"))
 print("pm10 vs wind_speed:", df.stat.corr("pm10", "wind_speed"))
 print("pm10 vs wind_dir:", df.stat.corr("pm10", "wind_dir"))
 
+
+#------------------------------------------------------------------------
+# Visualisation - Combined 4 Plot Grid of Wind and particulates
+#------------------------------------------------------------------------
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Sample ONCE
+sample_df = df.sample(fraction=0.01).toPandas()
+
+# Create 2x2 grid
+fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+
+# 1️⃣ Wind Speed vs PM2.5
+axes[0, 0].scatter(sample_df["wind_speed"], sample_df["pm25"], color='blue')
+axes[0, 0].set_xlabel("Wind Speed")
+axes[0, 0].set_ylabel("PM2.5")
+axes[0, 0].set_title("Wind Speed vs PM2.5")
+
+# 2️⃣ Wind Speed vs PM10
+axes[0, 1].scatter(sample_df["wind_speed"], sample_df["pm10"], color='green')
+axes[0, 1].set_xlabel("Wind Speed")
+axes[0, 1].set_ylabel("PM10")
+axes[0, 1].set_title("Wind Speed vs PM10")
+
+# 3️⃣ Wind Direction vs PM2.5
+axes[1, 0].scatter(sample_df["wind_dir"], sample_df["pm25"], color='blue')
+axes[1, 0].set_xlabel("Wind Direction")
+axes[1, 0].set_ylabel("PM2.5")
+axes[1, 0].set_title("Wind Direction vs PM2.5")
+
+# 4️⃣ Wind Direction vs PM10
+axes[1, 1].scatter(sample_df["wind_dir"], sample_df["pm10"], color='green')
+axes[1, 1].set_xlabel("Wind Direction")
+axes[1, 1].set_ylabel("PM10")
+axes[1, 1].set_title("Wind Direction vs PM10")
+
+# Adjust layout
+plt.tight_layout()
+
+plt.show()
+
+
 #---------------------------------------------------------------------
 # Saving as parquet --this causing issue as follows
 #HADOOP_HOME and hadoop.home.dir are unsetwinutils.exe not found
@@ -80,7 +124,7 @@ print("pm10 vs wind_dir:", df.stat.corr("pm10", "wind_dir"))
 #df = spark.read.parquet("data/air_quality_clean.parquet")
 
 #---------------------------------------------------------------------
-#Feature engeneering
+#Feature Engeneering
 #---------------------------------------------------------------------
 
 from pyspark.sql.functions import hour, dayofweek
