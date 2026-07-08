@@ -135,6 +135,8 @@ null_df = df.filter(
     col("wind_dir").isNull()
 )
 
+null_count = null_df.count()
+
 assert null_count == 0, (
     f"Missing value validation failed. "
     f"{null_count} records containing null values remain."
