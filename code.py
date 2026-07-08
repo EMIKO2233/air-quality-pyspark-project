@@ -4,10 +4,10 @@ from pyspark.sql.functions import count, when
 import pandas as pd
 import matplotlib.pyplot as plt
 from pyspark.sql.functions import hour, dayofweek
-from pyspark.testing.utils import (
-    assertSchemaEqual,
-    assertDataFrameEqual
-)
+#from pyspark.testing.utils import (
+#    assertSchemaEqual,
+#    assertDataFrameEqual
+#)
 from pyspark.ml.feature import VectorAssembler, StandardScaler
 from pyspark.ml.regression import LinearRegression, DecisionTreeRegressor, RandomForestRegressor
 from pyspark.ml import Pipeline
@@ -47,24 +47,47 @@ df.show(5)
 df.printSchema()
 
 #-----------------------------------------------
-# Test 1 - schema validation
+# Test 1 - Schema Validation
 #-----------------------------------------------
 
-expected_df = spark.createDataFrame(
-    [],
-    schema="""
-        datetime timestamp,
-        pm10 double,
-        pm25 double,
-        wind_dir double,
-        wind_speed double
-    """
+#original version using PySpark Testing
+#
+# expected_df = spark.createDataFrame(
+#     [],
+#     schema="""
+#         datetime timestamp,
+#         pm10 double,
+#         pm25 double,
+#         wind_dir double,
+#         wind_speed double
+#     """
+# )
+#
+# assertSchemaEqual(
+#     df.schema,
+#     expected_df.schema
+# )
+#
+# If the schemas differ, PySpark will automatically raise a
+# PySparkAssertionError detailing the schema mismatch
+
+# Replacement implementation
+
+expected_columns = [
+    "datetime",
+    "pm10",
+    "pm25",
+    "wind_dir",
+    "wind_speed"
+]
+
+assert df.columns == expected_columns, (
+    f"Schema validation failed. "
+    f"Expected columns: {expected_columns}. "
+    f"Found columns: {df.columns}"
 )
 
-assertSchemaEqual(df.schema, expected_df.schema)
-
 print("SCHEMA TEST PASSED")
-
 
 #=====================================================================
 # Exploring the data and cache
@@ -81,13 +104,29 @@ missing_counts.show()
 df = df.dropna()
 
 #-----------------------------------------------
-# Test 2 - Verify the missing values are removed
+# Test 2 - Missing Value Validation
 #-----------------------------------------------
-# Confirm missing values are gone
-df.select([
-    count(when(col(c).isNull(), c)).alias(c)
-    for c in df.columns
-]).show()
+
+# Original version using PySpark Testing 
+#
+# null_df = df.filter(
+#     col("pm25").isNull() |
+#     col("pm10").isNull() |
+#     col("wind_speed").isNull() |
+#     col("wind_dir").isNull()
+# )
+#
+# expected_empty_df = spark.createDataFrame(
+#     [],
+#     null_df.schema
+# )
+#
+# assertDataFrameEqual(
+#     null_df,
+#     expected_empty_df
+# )
+
+# Replacement implementation
 
 null_df = df.filter(
     col("pm25").isNull() |
@@ -96,9 +135,10 @@ null_df = df.filter(
     col("wind_dir").isNull()
 )
 
-expected_empty_df = spark.createDataFrame([], null_df.schema)
-
-assertDataFrameEqual(null_df, expected_empty_df)
+assert null_count == 0, (
+    f"Missing value validation failed. "
+    f"{null_count} records containing null values remain."
+)
 
 print("MISSING VALUES REMOVAL TEST PASSED")
 
@@ -116,8 +156,6 @@ print("pm25 vs wind_speed:", df.stat.corr("pm25", "wind_speed"))
 print("pm25 vs wind_dir:", df.stat.corr("pm25", "wind_dir"))
 print("pm10 vs wind_speed:", df.stat.corr("pm10", "wind_speed"))
 print("pm10 vs wind_dir:", df.stat.corr("pm10", "wind_dir"))
-
-
 
 #=====================================================================
 # Visualisation - Combined 4 plot grid of wind and particulates
@@ -155,8 +193,6 @@ plt.tight_layout()
 
 plt.show()
 
-
-
 #=====================================================================
 # Saving as parquet --this causing issue as follows
 #HADOOP_HOME and hadoop.home.dir are unsetwinutils.exe not found
@@ -175,11 +211,14 @@ df = df.withColumn("hour", hour("datetime")) \
        .withColumn("day_of_week", dayofweek("datetime"))
 
 #-----------------------------------------------
-# Test 3 - Feature Engineering
+# Test 3 - Feature Engineering test
 #-----------------------------------------------
 
-assert "hour" in df.columns, "hour column was not created"
-assert "day_of_week" in df.columns, "day_of_week column was not created"
+assert "hour" in df.columns, \
+    "hour column was not created"
+
+assert "day_of_week" in df.columns, \
+    "day_of_week column was not created"
 
 print("FEATURE ENGINEERING TEST PASSED")
 #-----------------------------------------------
