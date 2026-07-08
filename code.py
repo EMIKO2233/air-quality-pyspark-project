@@ -1,5 +1,9 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import to_timestamp, col
+from pyspark.sql.functions import count, when
+import pandas as pd
+import matplotlib.pyplot as plt
+from pyspark.sql.functions import hour, dayofweek
 
 # Creating a spark session
 spark = SparkSession.builder \
@@ -9,7 +13,7 @@ spark = SparkSession.builder \
 # Loading the dataset
 df = spark.read.csv("data/Bexley15min.csv", header=True)
 
-# Rename columns
+# Renaming columns
 df = df.withColumnRenamed("ReadingDateTime", "datetime") \
        .withColumnRenamed("2.5", "pm25") \
        .withColumnRenamed("10", "pm10") \
@@ -22,23 +26,20 @@ df = df.withColumn(
     to_timestamp("datetime", "dd/MM/yyyy HH:mm")
 )
 
-# Convert numeric columns
+# Convert numeric data columns
 df = df.withColumn("pm25", col("pm25").cast("double")) \
        .withColumn("pm10", col("pm10").cast("double")) \
        .withColumn("wind_speed", col("wind_speed").cast("double")) \
        .withColumn("wind_dir", col("wind_dir").cast("double"))
 
-# Show data
 df.show(5)
 
-# Show schema
+# Show the schema
 df.printSchema()
 
 #---------------------------------------------------------------------
 # Exploring the data and cache
 #---------------------------------------------------------------------
-
-from pyspark.sql.functions import count, when
 
 # Missing values
 missing_counts = df.select([
@@ -50,7 +51,7 @@ missing_counts.show()
 # Handle missing values
 df = df.dropna()
 
-# Cache after cleaning
+# Cache
 df.cache()
 df.count()
 
@@ -74,40 +75,34 @@ print("pm10 vs wind_dir:", df.stat.corr("pm10", "wind_dir"))
 # Visualisation - Combined 4 Plot Grid of Wind and particulates
 #------------------------------------------------------------------------
 
-import pandas as pd
-import matplotlib.pyplot as plt
-
-# Sample ONCE
 sample_df = df.sample(fraction=0.01).toPandas()
 
-# Create 2x2 grid
 fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 
-# 1️⃣ Wind Speed vs PM2.5
+# 1️ Wind Speed vs PM2.5
 axes[0, 0].scatter(sample_df["wind_speed"], sample_df["pm25"], color='blue')
 axes[0, 0].set_xlabel("Wind Speed")
 axes[0, 0].set_ylabel("PM2.5")
 axes[0, 0].set_title("Wind Speed vs PM2.5")
 
-# 2️⃣ Wind Speed vs PM10
+# 2️ Wind Speed vs PM10
 axes[0, 1].scatter(sample_df["wind_speed"], sample_df["pm10"], color='green')
 axes[0, 1].set_xlabel("Wind Speed")
 axes[0, 1].set_ylabel("PM10")
 axes[0, 1].set_title("Wind Speed vs PM10")
 
-# 3️⃣ Wind Direction vs PM2.5
+# 3 Wind Direction vs PM2.5
 axes[1, 0].scatter(sample_df["wind_dir"], sample_df["pm25"], color='blue')
 axes[1, 0].set_xlabel("Wind Direction")
 axes[1, 0].set_ylabel("PM2.5")
 axes[1, 0].set_title("Wind Direction vs PM2.5")
 
-# 4️⃣ Wind Direction vs PM10
+# 4️ Wind Direction vs PM10
 axes[1, 1].scatter(sample_df["wind_dir"], sample_df["pm10"], color='green')
 axes[1, 1].set_xlabel("Wind Direction")
 axes[1, 1].set_ylabel("PM10")
 axes[1, 1].set_title("Wind Direction vs PM10")
 
-# Adjust layout
 plt.tight_layout()
 
 plt.show()
@@ -126,8 +121,6 @@ plt.show()
 #---------------------------------------------------------------------
 #Feature Engeneering
 #---------------------------------------------------------------------
-
-from pyspark.sql.functions import hour, dayofweek
 
 df = df.withColumn("hour", hour("datetime")) \
        .withColumn("day_of_week", dayofweek("datetime"))
@@ -233,7 +226,7 @@ pred_dt = model_dt.transform(test_df)
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 from pyspark.ml.evaluation import RegressionEvaluator
 
-# Evaluator (define here BEFORE cross-validation)
+# Evaluator 
 evaluator = RegressionEvaluator(
     labelCol=label_col,
     predictionCol="prediction",
@@ -260,11 +253,11 @@ cv_model = crossval.fit(train_df)
 # Predictions using tuned model
 pred_rf = cv_model.transform(test_df)
 
-# Evaluate tuned RF
+# Evaluate tuned random forrest
 rmse_rf = evaluator.evaluate(pred_rf)
 print("\nPM2.5 Tuned Random Forest RMSE:", rmse_rf)
 
-# Get best model
+# Get the best model
 best_model = cv_model.bestModel
 best_rf = best_model.stages[-1]
 
@@ -274,7 +267,7 @@ print("maxDepth:", best_rf.getOrDefault("maxDepth"))
 
 
 #------------------------------------------------------------------------
-# ADDED: Hyperparameter Tuning (PM10)
+# Hyperparameter Tuning (PM10)
 #------------------------------------------------------------------------
 
 # Parameter grid for PM10
