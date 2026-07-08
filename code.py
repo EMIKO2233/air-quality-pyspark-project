@@ -4,6 +4,15 @@ from pyspark.sql.functions import count, when
 import pandas as pd
 import matplotlib.pyplot as plt
 from pyspark.sql.functions import hour, dayofweek
+from pyspark.testing.utils import (
+    assertSchemaEqual,
+    assertDataFrameEqual
+)
+from pyspark.ml.feature import VectorAssembler, StandardScaler
+from pyspark.ml.regression import LinearRegression, DecisionTreeRegressor, RandomForestRegressor
+from pyspark.ml import Pipeline
+from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+from pyspark.ml.evaluation import RegressionEvaluator
 
 # Creating a spark session
 spark = SparkSession.builder \
@@ -34,12 +43,32 @@ df = df.withColumn("pm25", col("pm25").cast("double")) \
 
 df.show(5)
 
-# Show the schema
+# Showing the schema
 df.printSchema()
 
-#---------------------------------------------------------------------
+#-----------------------------------------------
+# Test 1 - schema validation
+#-----------------------------------------------
+
+expected_df = spark.createDataFrame(
+    [],
+    schema="""
+        datetime timestamp,
+        pm10 double,
+        pm25 double,
+        wind_dir double,
+        wind_speed double
+    """
+)
+
+assertSchemaEqual(df.schema, expected_df.schema)
+
+print("SCHEMA TEST PASSED")
+
+
+#=====================================================================
 # Exploring the data and cache
-#---------------------------------------------------------------------
+#=====================================================================
 
 # Missing values
 missing_counts = df.select([
@@ -51,15 +80,33 @@ missing_counts.show()
 # Handle missing values
 df = df.dropna()
 
-# Cache
-df.cache()
-df.count()
-
+#-----------------------------------------------
+# Test 2 - Verify the missing values are removed
+#-----------------------------------------------
 # Confirm missing values are gone
 df.select([
     count(when(col(c).isNull(), c)).alias(c)
     for c in df.columns
 ]).show()
+
+null_df = df.filter(
+    col("pm25").isNull() |
+    col("pm10").isNull() |
+    col("wind_speed").isNull() |
+    col("wind_dir").isNull()
+)
+
+expected_empty_df = spark.createDataFrame([], null_df.schema)
+
+assertDataFrameEqual(null_df, expected_empty_df)
+
+print("MISSING VALUES REMOVAL TEST PASSED")
+
+#-----------------------------------------------
+
+# Cache
+df.cache()
+df.count()
 
 # Summary statistics
 df.describe().show()
@@ -71,9 +118,10 @@ print("pm10 vs wind_speed:", df.stat.corr("pm10", "wind_speed"))
 print("pm10 vs wind_dir:", df.stat.corr("pm10", "wind_dir"))
 
 
-#------------------------------------------------------------------------
-# Visualisation - Combined 4 Plot Grid of Wind and particulates
-#------------------------------------------------------------------------
+
+#=====================================================================
+# Visualisation - Combined 4 plot grid of wind and particulates
+#=====================================================================
 
 sample_df = df.sample(fraction=0.01).toPandas()
 
@@ -108,26 +156,46 @@ plt.tight_layout()
 plt.show()
 
 
-#---------------------------------------------------------------------
+
+#=====================================================================
 # Saving as parquet --this causing issue as follows
 #HADOOP_HOME and hadoop.home.dir are unsetwinutils.exe not found
-#---------------------------------------------------------------------
+#=====================================================================
 
 #df.write.mode("overwrite").parquet("data/air_quality_clean.parquet")
 
 # Reload (best practice for next stages)
 #df = spark.read.parquet("data/air_quality_clean.parquet")
 
-#---------------------------------------------------------------------
-#Feature Engeneering
-#---------------------------------------------------------------------
+#=====================================================================
+#Feature engeneering with testing 
+#=====================================================================
 
 df = df.withColumn("hour", hour("datetime")) \
        .withColumn("day_of_week", dayofweek("datetime"))
 
+#-----------------------------------------------
+# Test 3 - Feature Engineering
+#-----------------------------------------------
+
+assert "hour" in df.columns, "hour column was not created"
+assert "day_of_week" in df.columns, "day_of_week column was not created"
+
+print("FEATURE ENGINEERING TEST PASSED")
+#-----------------------------------------------
+
 #Train Test split 80/20
 train_df = df.filter(df.datetime < "2022-01-01")
 test_df = df.filter(df.datetime >= "2022-01-01")
+
+#-----------------------------------------------
+# Test 4 - train/test split test
+#-----------------------------------------------
+
+assert train_df.count() > 0, "Training dataset is empty"
+assert test_df.count() > 0, "Testing dataset is empty"
+
+print("TRAIN/TEST SPLIT TEST PASSED")
 
 # define features and label columns
 feature_cols = ["wind_speed", "wind_dir", "hour", "day_of_week"]
@@ -135,17 +203,9 @@ label_col = "pm25"
 #ADDED: Second label for PM10
 label_col_pm10 = "pm10"
 
-#--------------------------------------------------------------------
-# Importing the machine learning tools
-#--------------------------------------------------------------------
-
-from pyspark.ml.feature import VectorAssembler, StandardScaler
-from pyspark.ml.regression import LinearRegression, DecisionTreeRegressor, RandomForestRegressor
-from pyspark.ml import Pipeline
-
-#---------------------------------------------------------------------
+#=====================================================================
 # VectorAssembler and Scaler
-#---------------------------------------------------------------------
+#=====================================================================
 
 assembler = VectorAssembler(
     inputCols=feature_cols,
@@ -158,9 +218,9 @@ scaler = StandardScaler(
     outputCol="scaled_features"
 )
 
-#------------------------------------------------------------------------
-#Build the ML models
-#------------------------------------------------------------------------
+#=====================================================================
+# Build the ML models
+#=====================================================================
 
 #Linear Regression
 lr = LinearRegression(
@@ -208,9 +268,9 @@ pipeline_rf_pm10 = Pipeline(stages=[
     rf_pm10
 ])
 
-#------------------------------------------------------------------------
+#=====================================================================
 # Training the Models and Make Predictions
-#------------------------------------------------------------------------
+#=====================================================================
 
 # Train LR and DT normally
 model_lr = pipeline_lr.fit(train_df)
@@ -219,12 +279,9 @@ model_dt = pipeline_dt.fit(train_df)
 pred_lr = model_lr.transform(test_df)
 pred_dt = model_dt.transform(test_df)
 
-#------------------------------------------------------------------------
+#=====================================================================
 # Hyperparameter Tuning 2.5 PM (Cross Validation of Random Forest)
-#------------------------------------------------------------------------
-
-from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
-from pyspark.ml.evaluation import RegressionEvaluator
+#=====================================================================
 
 # Evaluator 
 evaluator = RegressionEvaluator(
@@ -266,9 +323,9 @@ print("numTrees:", best_rf.getNumTrees)
 print("maxDepth:", best_rf.getOrDefault("maxDepth"))
 
 
-#------------------------------------------------------------------------
+#=====================================================================
 # Hyperparameter Tuning (PM10)
-#------------------------------------------------------------------------
+#=====================================================================
 
 # Parameter grid for PM10
 paramGrid_pm10 = ParamGridBuilder() \
@@ -313,9 +370,9 @@ print("\nPM10 Best Parameters:")
 print("numTrees:", best_rf_pm10.getNumTrees)
 print("maxDepth:", best_rf_pm10.getOrDefault("maxDepth"))
 
-#------------------------------------------------------------------------
+#=====================================================================
 # Feature Importance (PM2.5 - Random Forest)
-#------------------------------------------------------------------------
+#=====================================================================
 
 rf_model = best_model.stages[-1]
 
@@ -326,9 +383,9 @@ print("\nPM2.5 Feature Importances:")
 for feature, importance in feature_importance:
     print(f"{feature}: {importance:.4f}")
 
-#------------------------------------------------------------------------
+#=====================================================================
 # Feature Importance (PM10 - Random Forest)
-#------------------------------------------------------------------------
+#=====================================================================
 
 rf_model_pm10 = best_model_pm10.stages[-1]
 
@@ -339,9 +396,9 @@ print("\nPM10 Feature Importances:")
 for feature, importance in feature_importance_pm10:
     print(f"{feature}: {importance:.4f}")
 
-#------------------------------------------------------------------------
+#=====================================================================
 # Model Evaluation
-#------------------------------------------------------------------------
+#=====================================================================
 
 rmse_lr = evaluator.evaluate(pred_lr)
 rmse_dt = evaluator.evaluate(pred_dt)
@@ -354,9 +411,9 @@ print("Random Forest RMSE:", rmse_rf)
 print("\nPM10 Model:")
 print("Random Forest RMSE:", rmse_rf_pm10)
 
-#------------------------------------------------------------------------
+#=====================================================================
 # Show Predictions 
-#------------------------------------------------------------------------
+#=====================================================================
 
 print("\nPM2.5 Predictions:")
 pred_rf.select("pm25", "prediction").show(5)
